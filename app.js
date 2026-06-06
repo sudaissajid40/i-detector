@@ -159,10 +159,50 @@ function updateProgress(title, subtext, percentage) {
     progressFill.style.width = `${percentage}%`;
 }
 
+async function compressImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const MAX_SIZE = 800; // Resize to max 800px to ensure it's small!
+                
+                if (width > height && width > MAX_SIZE) {
+                    height *= MAX_SIZE / width;
+                    width = MAX_SIZE;
+                } else if (height > MAX_SIZE) {
+                    width *= MAX_SIZE / height;
+                    height = MAX_SIZE;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Compress to JPEG 80% quality
+                canvas.toBlob((blob) => {
+                    if (blob) resolve(blob.arrayBuffer());
+                    else reject(new Error('Image compression failed'));
+                }, 'image/jpeg', 0.8);
+            };
+            img.onerror = () => reject(new Error('Invalid image file'));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+    });
+}
+
 // API Integration
 async function detectAI(file) {
     const API_URL = "/api/detect";
-    const buffer = await file.arrayBuffer();
+    
+    // We compress the image to ensure it's < 1MB so Vercel doesn't block it!
+    const buffer = await compressImage(file);
     
     // Set a 15-second timeout
     const controller = new AbortController();
