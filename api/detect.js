@@ -1,5 +1,5 @@
 export const config = {
-  runtime: 'edge', // This tells Vercel to use the faster, stream-friendly Edge network!
+  runtime: 'edge',
 };
 
 export default async function handler(req) {
@@ -12,20 +12,22 @@ export default async function handler(req) {
     const userToken = req.headers.get('x-hf-token');
     const hfToken = userToken || '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';
 
-    // We can pass the raw request body stream directly to Hugging Face!
+    // FIX: Read the image into a buffer first instead of streaming it directly
+    // This gives Hugging Face the exact file size and prevents the "internal error"
+    const buffer = await req.arrayBuffer();
+
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${hfToken}`,
         'Content-Type': 'application/octet-stream',
       },
-      body: req.body 
+      body: buffer 
     });
 
     if (!response.ok) {
         let errText = await response.text();
         try {
-            // Try to extract the clean error message if Hugging Face sends JSON
             const json = JSON.parse(errText);
             errText = json.error || errText;
         } catch(e) {}
@@ -36,7 +38,6 @@ export default async function handler(req) {
         });
     }
 
-    // Success! Return the data
     const data = await response.json();
     return new Response(JSON.stringify(data), { 
         status: 200, 
