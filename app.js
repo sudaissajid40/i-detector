@@ -161,7 +161,7 @@ function updateProgress(title, subtext, percentage) {
 
 // API Integration
 async function detectAI(file) {
-    const API_URL = "https://api-inference.huggingface.co/models/umm-maybe/AI-image-detector";
+    const API_URL = "/api/detect";
     const buffer = await file.arrayBuffer();
     
     // Set a 15-second timeout
@@ -171,7 +171,7 @@ async function detectAI(file) {
     try {
         const response = await fetch(API_URL, {
             headers: {
-                "Authorization": `Bearer ${state.hfToken}`,
+                "x-hf-token": state.hfToken,
                 "Content-Type": "application/octet-stream"
             },
             method: "POST",
