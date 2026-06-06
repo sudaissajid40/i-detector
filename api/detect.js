@@ -1,45 +1,66 @@
+import https from 'https';
+
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: '4mb', // Protects the API
-    },
+    bodyParser: false, // We stream it manually for maximum safety
   },
 };
 
-export default async function handler(req, res) {
+export default function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  try {
-    const API_URL = "https://api-inference.huggingface.co/models/umm-maybe/AI-image-detector";
-    const userToken = req.headers['x-hf-token'];
-    const hfToken = userToken || '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';
+  const userToken = req.headers['x-hf-token'];
+  const hfToken = userToken || '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';
 
-    // Send the perfectly compressed image straight to Hugging Face
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${hfToken}`,
-        'Content-Type': 'application/octet-stream',
-      },
-      body: req.body
+  const options = {
+    hostname: 'api-inference.huggingface.co',
+    port: 443,
+    path: '/models/umm-maybe/AI-image-detector',
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${hfToken}`,
+      'Content-Type': 'application/octet-stream',
+    }
+  };
+
+  // Keep the same file size so Hugging Face knows when it finishes
+  if (req.headers['content-length']) {
+      options.headers['Content-Length'] = req.headers['content-length'];
+  }
+
+  // Create a raw HTTPS connection (bypassing the buggy fetch)
+  const proxyReq = https.request(options, (proxyRes) => {
+    let responseBody = '';
+    
+    proxyRes.on('data', (chunk) => {
+      responseBody += chunk;
     });
 
-    if (!response.ok) {
-        let errText = await response.text();
+    proxyRes.on('end', () => {
+      if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
         try {
-            const json = JSON.parse(errText);
-            errText = json.error || errText;
-        } catch(e) {}
-        
-        return res.status(response.status).json({ error: errText });
-    }
+          res.status(200).json(JSON.parse(responseBody));
+        } catch (e) {
+          res.status(200).send(responseBody);
+        }
+      } else {
+        try {
+          const json = JSON.parse(responseBody);
+          res.status(proxyRes.statusCode).json({ error: json.error || responseBody });
+        } catch (e) {
+          res.status(proxyRes.statusCode).json({ error: responseBody });
+        }
+      }
+    });
+  });
 
-    const data = await response.json();
-    return res.status(200).json(data);
+  proxyReq.on('error', (error) => {
+    // If it STILL fails, it will tell us EXACTLY why (e.g. timeout, DNS block, etc.)
+    res.status(500).json({ error: `HTTPS error: ${error.message}` });
+  });
 
-  } catch (error) {
-    return res.status(500).json({ error: error.message || 'Server Error' });
-  }
+  // Pipe the compressed image stream directly to Hugging Face
+  req.pipe(proxyReq);
 }
