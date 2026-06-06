@@ -1,47 +1,52 @@
 export const config = {
-  api: {
-    bodyParser: false,
-  },
+  runtime: 'edge', // This tells Vercel to use the faster, stream-friendly Edge network!
 };
 
-export default async function handler(req, res) {
+export default async function handler(req) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 
   try {
-    // Read the raw body stream into a buffer
-    const chunks = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
-    }
-    const buffer = Buffer.concat(chunks);
-
     const API_URL = "https://api-inference.huggingface.co/models/umm-maybe/AI-image-detector";
-    
-    // Get token from headers, fallback to default
-    const userToken = req.headers['x-hf-token'];
+    const userToken = req.headers.get('x-hf-token');
     const hfToken = userToken || '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';
 
-    // Proxy the request to Hugging Face
+    // We can pass the raw request body stream directly to Hugging Face!
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${hfToken}`,
         'Content-Type': 'application/octet-stream',
       },
-      body: buffer
+      body: req.body 
     });
 
     if (!response.ok) {
-        const err = await response.text();
-        return res.status(response.status).json({ error: err });
+        let errText = await response.text();
+        try {
+            // Try to extract the clean error message if Hugging Face sends JSON
+            const json = JSON.parse(errText);
+            errText = json.error || errText;
+        } catch(e) {}
+        
+        return new Response(JSON.stringify({ error: errText }), { 
+            status: response.status,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 
+    // Success! Return the data
     const data = await response.json();
-    return res.status(200).json(data);
+    return new Response(JSON.stringify(data), { 
+        status: 200, 
+        headers: { 'Content-Type': 'application/json' } 
+    });
 
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Internal Server Error' });
+    return new Response(JSON.stringify({ error: error.message || 'Server Error' }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
